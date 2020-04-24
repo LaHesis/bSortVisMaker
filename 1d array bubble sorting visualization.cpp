@@ -4,9 +4,9 @@
 #include <time.h>
 #include <png.h>
 
-#define N 20
-// Min is 2.
-#define BLOCK_WIDTH 40
+#define N 40
+// In pixels. Min is 2.
+#define IMAGE_WIDTH 1366
 #define WITH_STABILITY_SHOWN 1
 #define SORTING_IMG_DIR "sorting img"
 
@@ -16,7 +16,7 @@
 
 #define BORDER_ADDITION_MIN_WIDTH 7
 #define BORDER_LIGHTNESS 20
-
+const short BLOCK_WIDTH = IMAGE_WIDTH / N;
 
 enum stabilityColors {
     regularColor,
@@ -61,10 +61,10 @@ int main()
     return 0;
 }
 
-void printArrayIntoImage(colorBlock *blocks, short swapNum, short greaterSwappedBlockInd, short smallerSwappedBlockInd, char *fileDir) {
+void printArrayIntoImage(colorBlock *blocks, short imgNum, short greaterSwappedBlockInd, short smallerSwappedBlockInd, char *fileDir) {
     FILE* fp;
     char fileName[100];
-    sprintf_s(fileName, 100, "%s\\image%d.png", fileDir, swapNum);
+    sprintf_s(fileName, 100, "%s\\image%d.png", fileDir, imgNum);
     fopen_s(&fp, fileName, "wb");
 
     // Errors checking.
@@ -86,53 +86,61 @@ void printArrayIntoImage(colorBlock *blocks, short swapNum, short greaterSwapped
         return;
     }
 
-    short width = N*BLOCK_WIDTH;
-    short height = width / 2;
-    png_set_IHDR(png_ptr, png_info, width, height, 8, PNG_COLOR_TYPE_RGB,
+    
+    // In pixels.
+    short imgWidthComputed = N*BLOCK_WIDTH;
+    short imgHeight = imgWidthComputed / 2;
+    
+    png_set_IHDR(png_ptr, png_info, imgWidthComputed, imgHeight, 8, PNG_COLOR_TYPE_RGB,
         PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
         PNG_FILTER_TYPE_DEFAULT);
 
-    unsigned char** rows = (unsigned char**) malloc(sizeof(unsigned char*) * height);
-    for (int i = 0; i < height; i++) {
-        unsigned char *row = malloc(sizeof(unsigned char) * width * 3);
+    unsigned char** rows = (unsigned char**) malloc(sizeof(unsigned char*) * imgHeight);
+    for (int i = 0; i < imgHeight; i++) {
+        unsigned char *row = malloc(sizeof(unsigned char) * imgWidthComputed * 3);
         rows[i] = row;
-        for (short j = 0; j < width * 3; j++) {
+        for (short j = 0; j < imgWidthComputed * 3; j++) {
             float color = j;
             color = 250;
             row[j] = (unsigned char) color;
         }
     }
 
-    //It's how many pixel rows are in 1 value of colorBlock.
-    short rowsInOneVal = (BLOCK_WIDTH / 2);
+    // It's how many pixel rows are in 1 value of colorBlock.
+    short rowsInOneVal = imgHeight / N;
 
-    //Border flags.
+    // Border flags.
     unsigned char whetherShowBorders = BLOCK_WIDTH >= BORDER_ADDITION_MIN_WIDTH;
-    unsigned char topBorderIsHere;
-    unsigned char leftBorderIsHere;
-    unsigned char rightBorderIsHere;
-    unsigned char bottomBorderIsHere;
-    unsigned char borderUnderCapIsHere;
+    unsigned char topBorderIsHere = 0;
+    unsigned char leftBorderIsHere = 0;
+    unsigned char rightBorderIsHere = 0;
+    unsigned char bottomBorderIsHere = 0;
+    unsigned char borderUnderCapIsHere = 0;
 
     for (short blockInd = 0; blockInd < N; blockInd++) {
         colorBlock clrBl = *(blocks + blockInd);
-        short rowAboveBlockTop = height - (clrBl.value + 1) * rowsInOneVal;
+        short rowAboveBlockTop = imgHeight - (clrBl.value + 1) * rowsInOneVal;
         short rowBelowBlockCap = rowAboveBlockTop + rowsInOneVal * .7 + 1;
         unsigned char isBlockToEmphasize = (greaterSwappedBlockInd == blockInd || smallerSwappedBlockInd == blockInd);
-        for (short i = height - 1; i > rowAboveBlockTop; i--) {
+        for (short i = imgHeight - 1; i > rowAboveBlockTop; i--) {
             short blockStartPos = blockInd * BLOCK_WIDTH * 3;
             short blockEndPos = (blockInd + 1) * BLOCK_WIDTH * 3;
 
-            //Horizontal borders.
+            // Used for emphasizing swapping or comparing blocks by gradient fill.
+            float verticalColorRatio = isBlockToEmphasize ? (imgHeight - i) / (float)(imgHeight - rowBelowBlockCap) : 0;
+            // Color blocks are painted with gradient according to clrBl.value as a whole.
+            float horizontalColorRatio = clrBl.value / ((float)N - 1);
+
+            // Horizontal borders.
             if (whetherShowBorders) {
                 topBorderIsHere = (i == rowAboveBlockTop + 1);
-                bottomBorderIsHere = (i == height - 1);
+                bottomBorderIsHere = (i == imgHeight - 1);
                 borderUnderCapIsHere = (i == rowBelowBlockCap);
             }
 
             for (short j = blockStartPos; j < (blockInd + 1) * BLOCK_WIDTH * 3; j += 3) {
                 unsigned char* pixelRGB = *(rows + i) + j;
-                //Borders.
+                // Borders.
                 if (whetherShowBorders) {
                     leftBorderIsHere = (j == blockStartPos && whetherShowBorders);
                     rightBorderIsHere = (j == (blockInd + 1) * BLOCK_WIDTH * 3 - 3 && whetherShowBorders);
@@ -142,8 +150,6 @@ void printArrayIntoImage(colorBlock *blocks, short swapNum, short greaterSwapped
                     *(pixelRGB + 1) = BORDER_LIGHTNESS;
                     *(pixelRGB + 2) = BORDER_LIGHTNESS;
                 } else {
-                    // Color blocks are painted with gradient according to clrBl.value as a whole.
-                    float colorRatio = clrBl.value / ((float)N - 1);
                     if (WITH_STABILITY_SHOWN) {
                     switch (clrBl.stabColor) {
                         case red:
@@ -162,20 +168,27 @@ void printArrayIntoImage(colorBlock *blocks, short swapNum, short greaterSwapped
                             *(pixelRGB + 2) = STAB_LIGHTNESS;
                             break;
                         default:
-                            paintPixelWithColorRatio(pixelRGB, colorRatio);
+                            paintPixelWithColorRatio(pixelRGB, horizontalColorRatio);
                             break;
                         }
                     }
                     else {
-                        paintPixelWithColorRatio(pixelRGB, colorRatio);
+                        paintPixelWithColorRatio(pixelRGB, horizontalColorRatio);
                     }
 
-                    //Emphasize block cap.
+                    // Emphasize swapping or comparing blocks.
+                    if (isBlockToEmphasize) {
+                        *pixelRGB = (255 - MIN_LIGHTNESS) * verticalColorRatio + MIN_LIGHTNESS;
+                        *(pixelRGB + 1) = (220 - MIN_LIGHTNESS) * verticalColorRatio + MIN_LIGHTNESS;
+                        *(pixelRGB + 2) = MIN_LIGHTNESS;
+                    }
+
+                    // Emphasize block cap.
                     if (i < rowBelowBlockCap) {
                         if (isBlockToEmphasize) {
-                            *pixelRGB = 245;
-                            *(pixelRGB + 1) = 200;
-                            *(pixelRGB + 2) = 0;
+                            *pixelRGB = 255;
+                            *(pixelRGB + 1) = 255;
+                            *(pixelRGB + 2) = 170;
                         } else {
                             *pixelRGB = 137;
                             *(pixelRGB + 1) = 169;
@@ -191,11 +204,12 @@ void printArrayIntoImage(colorBlock *blocks, short swapNum, short greaterSwapped
     png_write_png(png_ptr, png_info, PNG_TRANSFORM_IDENTITY, NULL);
     png_write_end(png_ptr, png_info);
 
-    for (short y = 0; y < height; y++) {
+    for (short y = 0; y < imgHeight; y++) {
         free(rows[y]);
     }
     free(rows);
     fclose(fp);
+    printf("\"%s\" saved\n", fileName);
     png_destroy_write_struct(&png_ptr, NULL);
 }
 
@@ -220,7 +234,7 @@ colorBlock* generateArray() {
         newBlock.stabColor = regularColor;
         newBlock.value = cur_val;
 
-        //Stability blocks preparing.
+        // Stability blocks preparing.
         if (WITH_STABILITY_SHOWN) {
             if (cur_val == N / 2) {
                 newBlock.stabColor = red;
@@ -247,13 +261,12 @@ void shuffleArray(colorBlock* blocks) {
     for (int i = N - 1; i >= 1; i--) {
         srand(t + i);
         short r = rand() % (i + 1);
-        //printf("r%d ", r);
         tmp = *(blocks + r);
         *(blocks + r) = *(blocks + i);
         *(blocks + i) = tmp;
     }
 
-    //Stability blocks relocation.
+    // Stability blocks relocation.
     if (WITH_STABILITY_SHOWN) {
         for (int i = 0; i < N; i++) {
             tmp = *(blocks + i);
