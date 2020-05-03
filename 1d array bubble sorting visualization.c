@@ -5,22 +5,10 @@
 #include <time.h>
 #include <png.h>
 
-// Array element and color block amount.
-#define N 35
-// In pixels.
-#define IMAGE_WIDTH 900
-// Whether to show blocks with the same value
-// but colored with red, green and blue.
-#define WITH_STABILITY_SHOWN 1
 // Where to save frames.
 #define FRAMES_DIR "animation frames"
 // Where to save animation files.
 #define ANIMATIONS_DIR "animations"
-// Delay between frames, in 1/100 second.
-#define ANIMATION_DELAY "3"
-// Transitions between frames.
-#define ANIMATION_MORPH "3"
-
 #define BACKGROUND_LIGHTNESS 250
 #define MIN_LIGHTNESS 90
 #define MAX_LIGHTNESS 145
@@ -28,8 +16,26 @@
 
 #define BORDER_ADDITION_MIN_WIDTH 7
 #define BORDER_LIGHTNESS 20
-const short BLOCK_WIDTH = IMAGE_WIDTH / N;
-char quotedFramesDir[25];
+
+// Array element and color block amount.
+#define DEFAULT_N 20
+short N = DEFAULT_N;
+// In pixels.
+#define DEFAULT_IMAGE_WIDTH 900
+short IMAGE_WIDTH = DEFAULT_IMAGE_WIDTH;
+// Whether to show blocks with the same value
+// but colored with red, green and blue.
+#define DEFAULT_STABILITY_SHOWN 1
+char STABILITY_SHOWN = DEFAULT_STABILITY_SHOWN;
+// Delay between frames, in 1/100 second.
+#define DEFAULT_ANIMATION_DELAY 4
+unsigned short ANIMATION_DELAY = DEFAULT_ANIMATION_DELAY;
+// Transitions between frames.
+#define DEFAULT_ANIMATION_MORPH 2
+unsigned char ANIMATION_MORPH = DEFAULT_ANIMATION_MORPH;
+
+// Block width will be computed further.
+short BLOCK_WIDTH;
 
 enum stabilityColors {
     regularColor,
@@ -54,30 +60,87 @@ int bubbleSortAndGetStepCount(colorBlock*);
 unsigned char* encodeNumberIntoString(int);
 
 
-int main() {
+int main(int argc, char const* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        if (i + 1 >= argc && argv[i][1] != 'h') {
+            printf("Error during parsing options. Value for option %s is not found.", argv[i]);
+            return 1;
+        }
+        int optionValue = 0;
+        if (argv[i][1] != 'h') {
+            optionValue = atoi(argv[i + 1]);
+        }
+        switch (argv[i][1]) {
+            case 'h':
+                printf("    Program for bubble sort animated visualization. It creates frames and then converts frames into GIF.\n");
+                printf("    Also it uses GraphicsMagick for converting, so GraphicsMagick should be installed and available in cmd.\n");
+                printf("    Available program options:\n");
+                printf("-n   Number of values to sort, default is %d.\n", DEFAULT_N);
+                printf("-w   Width of the image (in pixels), default is %d.\n", DEFAULT_IMAGE_WIDTH);
+                printf("-s   Whether to show stability (0 - shown, 1 - not shown), default is %d.\n", DEFAULT_STABILITY_SHOWN);
+                printf("-d   Delay between frames (in 1/100 second), default is %d.\n", DEFAULT_ANIMATION_DELAY);
+                printf("-m   Animation morph, i.e. additional transition frames, default is %d.\n", DEFAULT_ANIMATION_MORPH);
+                printf("-h   Print help information about the program and its options.");
+                return 0;
+            case 'n':
+                // Check if the option value parsing was successful (not equal 0).
+                // If parsing failed, then assign default value. The same idea for other options. 
+                N = (optionValue == 0) ? N : optionValue;
+                printf("n is set to %d\n", N);
+                break;
+            case 'w':
+                IMAGE_WIDTH = (optionValue == 0) ? IMAGE_WIDTH : optionValue;
+                printf("w is set to %d\n", IMAGE_WIDTH);
+                break;
+            case 's':
+                // Parsed value should be 1 or 0.
+                STABILITY_SHOWN = (optionValue != 0 && optionValue != 1) ? STABILITY_SHOWN : optionValue;
+                printf("s is set to %d\n", STABILITY_SHOWN);
+                break;
+            case 'd':
+                ANIMATION_DELAY = (optionValue == 0) ? ANIMATION_DELAY : optionValue;
+                printf("d is set to %d\n", ANIMATION_DELAY);
+                break;
+            case 'm':
+                ANIMATION_MORPH = (optionValue == 0) ? ANIMATION_MORPH : optionValue;
+                printf("m is set to %d\n", ANIMATION_MORPH);
+                break;
+            default:
+                printf("Unknown '%s' program option.", argv[i]);
+                return 1;
+        }
+        if (argv[i][1] != 'h') {
+            i++;
+        }
+    }
+
+    BLOCK_WIDTH = IMAGE_WIDTH / N;
+
     system("chcp 1251");
     colorBlock* colorBlocks = generateArray();
-    printf("initial:\n");
+    printf("Initial array is:\n");
     printArrayIntoConsole(colorBlocks);
 
     shuffleArray(colorBlocks);
-    printf("after shuffling:\n");
+    printf("Array after elements shuffling is:\n");
     printArrayIntoConsole(colorBlocks);
     
-    sprintf_s(quotedFramesDir, 27, "\"%s\"", FRAMES_DIR);
+    // Old frames deleting.
+    char quotedFramesDir[25];
+    sprintf_s(quotedFramesDir, strlen(FRAMES_DIR) + 3, "\"%s\"", FRAMES_DIR);
     char removeDirCommand[35];
     sprintf_s(removeDirCommand, 35, "rmdir %s /S /Q", quotedFramesDir);
     system(removeDirCommand);
-
     char createDirCommand[35];
     sprintf_s(createDirCommand, 35, "mkdir %s", quotedFramesDir);
     system(createDirCommand);
 
+    printf("\nSorting started...\n");
     int stepsCount = bubbleSortAndGetStepCount(colorBlocks);
-    printf("after sortings:\n");
+    printf("Array after sorting:\n");
     printArrayIntoConsole(colorBlocks);
 
-    printf("creating animation from frames");
+    printf("Creating animation...\n");
     saveAnimation(stepsCount);
     return 0;
 }
@@ -110,24 +173,24 @@ void printArrayIntoPNGFrame(colorBlock *blocks, int frmNum, short greaterSwapped
     sprintf_s(fileName, 100, "%s\\%s.png", FRAMES_DIR, encodedNum);
     
     FILE* fp;
-    printf("trying to save step %d as \"%s\"\n", frmNum, fileName);
+    printf("Saving step %d as frame \"%s\"\n", frmNum, fileName);
     fopen_s(&fp, fileName, "wb");
     free(encodedNum);
 
     // Errors checking.
     if (!fp) {
-        printf("failed to write into file");
+        printf("Failed to write into file!\n");
         exit(1);
     }
     png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png_ptr) {
-        printf("failed to create write struct");
+        printf("Failed to create write struct!\n");
         fclose(fp);
         exit(1);
     }
     png_infop png_info;
     if (!(png_info = png_create_info_struct(png_ptr)) || setjmp(png_jmpbuf(png_ptr))) {
-        printf("failed to create info struct");
+        printf("Failed to create info struct!\n");
         png_destroy_write_struct(&png_ptr, NULL);
         fclose(fp);
         exit(1);
@@ -197,7 +260,7 @@ void printArrayIntoPNGFrame(colorBlock *blocks, int frmNum, short greaterSwapped
                 if (leftBorderIsHere || rightBorderIsHere || topBorderIsHere || bottomBorderIsHere || borderUnderCapIsHere) {
                     paintPixel(pixelRGB, BORDER_LIGHTNESS, BORDER_LIGHTNESS, BORDER_LIGHTNESS);
                 } else {
-                    if (WITH_STABILITY_SHOWN) {
+                    if (STABILITY_SHOWN) {
                     switch (clrBl.stabColor) {
                         case red:
                             paintPixel(pixelRGB, STAB_LIGHTNESS, 0, 0);
@@ -265,7 +328,7 @@ void saveAnimation(int stepsCount) {
     char elementsAmount[18] = { 0 };
     sprintf_s(elementsAmount, 18, "%d_elements", N);
     char stability[16] = { 0 };
-    if (WITH_STABILITY_SHOWN)
+    if (STABILITY_SHOWN)
         sprintf_s(stability, 16, "stability_shown");
     char stepsCountString[25] = { 0 };
     sprintf_s(stepsCountString, 25, "%d_steps", stepsCount);
@@ -275,8 +338,7 @@ void saveAnimation(int stepsCount) {
 
     char *createAnimationCommand[201];
     // GraphicsMagick utility "convert". I.e. GraphicsMagick should be installed.
-    sprintf_s(createAnimationCommand, 201, "gm convert -morph %s -delay %s \"%s\\*.png\" \"%s\\%s.gif\"", ANIMATION_MORPH, ANIMATION_DELAY, FRAMES_DIR, ANIMATIONS_DIR, name);
-    printf("\ncommand for creating animation: %s\n", createAnimationCommand);
+    sprintf_s(createAnimationCommand, 201, "gm convert -morph %d -delay %d \"%s\\*.png\" \"%s\\%s.gif\"", ANIMATION_MORPH, ANIMATION_DELAY, FRAMES_DIR, ANIMATIONS_DIR, name);
     system(createAnimationCommand);
 }
 
@@ -296,7 +358,7 @@ colorBlock* generateArray() {
         newBlock.value = cur_val;
 
         // Stability blocks preparing.
-        if (WITH_STABILITY_SHOWN) {
+        if (STABILITY_SHOWN) {
             if (cur_val == N / 2) {
                 newBlock.stabColor = red;
                 newBlock.value = N / 2;
@@ -328,7 +390,7 @@ void shuffleArray(colorBlock* blocks) {
     }
 
     // Stability blocks relocation.
-    if (WITH_STABILITY_SHOWN) {
+    if (STABILITY_SHOWN) {
         for (int i = 0; i < N; i++) {
             tmp = *(blocks + i);
             switch (blocks[i].stabColor) {
