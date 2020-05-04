@@ -18,20 +18,20 @@
 #define BORDER_LIGHTNESS 20
 
 // Array element and color block amount.
-#define DEFAULT_N 20
+#define DEFAULT_N 12
 short N = DEFAULT_N;
 // In pixels.
-#define DEFAULT_IMAGE_WIDTH 900
+#define DEFAULT_IMAGE_WIDTH 800
 short IMAGE_WIDTH = DEFAULT_IMAGE_WIDTH;
 // Whether to show blocks with the same value
 // but colored with red, green and blue.
 #define DEFAULT_STABILITY_SHOWN 1
 char STABILITY_SHOWN = DEFAULT_STABILITY_SHOWN;
 // Delay between frames, in 1/100 second.
-#define DEFAULT_ANIMATION_DELAY 4
+#define DEFAULT_ANIMATION_DELAY 12
 unsigned short ANIMATION_DELAY = DEFAULT_ANIMATION_DELAY;
 // Transitions between frames.
-#define DEFAULT_ANIMATION_MORPH 2
+#define DEFAULT_ANIMATION_MORPH 1
 unsigned char ANIMATION_MORPH = DEFAULT_ANIMATION_MORPH;
 
 // Block width will be computed further.
@@ -51,14 +51,14 @@ typedef struct {
 } colorBlock;
 
 void printArrayIntoPNGFrame(colorBlock* blocks, int, short, short);
-void saveAnimation(int);
+char* saveAnimation(int);
 void printArrayIntoConsole(colorBlock*);
 void paintPixel(unsigned char*, unsigned char, unsigned char, unsigned char);
 void shuffleArray(colorBlock*);
 colorBlock* generateArray();
 int bubbleSortAndGetStepCount(colorBlock*);
 unsigned char* encodeNumberIntoString(int);
-
+void optimizeAnimation(char* name);
 
 int main(int argc, char const* argv[]) {
     for (int i = 1; i < argc; i++) {
@@ -73,7 +73,7 @@ int main(int argc, char const* argv[]) {
         switch (argv[i][1]) {
             case 'h':
                 printf("    Program for bubble sort animated visualization. It creates frames and then converts frames into GIF.\n");
-                printf("    Also it uses GraphicsMagick for converting, so GraphicsMagick should be installed and available in cmd.\n");
+                printf("    Also it uses GraphicsMagick (used v. 1.3.35) for converting and gifsicle (used v. 1.92) for animation optimization, so they should be installed and available in cmd.\n");
                 printf("    Available program options:\n");
                 printf("-n   Number of values to sort, default is %d.\n", DEFAULT_N);
                 printf("-w   Width of the image (in pixels), default is %d.\n", DEFAULT_IMAGE_WIDTH);
@@ -141,7 +141,9 @@ int main(int argc, char const* argv[]) {
     printArrayIntoConsole(colorBlocks);
 
     printf("Creating animation...\n");
-    saveAnimation(stepsCount);
+    char* name = saveAnimation(stepsCount);
+    printf("Optimizing animation...\n");
+    optimizeAnimation(name);
     return 0;
 }
 
@@ -317,29 +319,38 @@ void paintPixel(unsigned char* pixelRGB, unsigned char r, unsigned char g, unsig
     *(pixelRGB + 2) = b;
 }
 
-void saveAnimation(int stepsCount) {
+char* saveAnimation(int stepsCount) {
     char createDirCommand[18];
     sprintf_s(createDirCommand, 18, "mkdir %s", ANIMATIONS_DIR);
     system(createDirCommand);
 
-    // Parameters info.
-    char imageWidth[11] = { 0 };
-    sprintf_s(imageWidth, 11, "width_%d", IMAGE_WIDTH);
-    char elementsAmount[18] = { 0 };
-    sprintf_s(elementsAmount, 18, "%d_elements", N);
-    char stability[16] = { 0 };
+    // Saving options info into animation name.
+    char stability[17] = { 0 };
     if (STABILITY_SHOWN)
-        sprintf_s(stability, 16, "stability_shown");
-    char stepsCountString[25] = { 0 };
-    sprintf_s(stepsCountString, 25, "%d_steps", stepsCount);
-
-    char name[120] = { 0 };
-    sprintf_s(name, 120, "%s %s %s %s", imageWidth, elementsAmount, stability, stepsCountString);
+        sprintf_s(stability, 17, " stability_shown");
+    char format[54] = "width_%d  N_%d %s  iterations_%d  delay_%d  morph_%d";
+    size_t name_size = snprintf(NULL, 0, format, IMAGE_WIDTH, N, stability, stepsCount, ANIMATION_DELAY, ANIMATION_MORPH);
+    char *name = malloc(name_size + sizeof('\0'));
+    sprintf_s(name, name_size / sizeof(unsigned char) + 1, format, IMAGE_WIDTH, N, stability, stepsCount, ANIMATION_DELAY, ANIMATION_MORPH);
 
     char *createAnimationCommand[201];
     // GraphicsMagick utility "convert". I.e. GraphicsMagick should be installed.
     sprintf_s(createAnimationCommand, 201, "gm convert -morph %d -delay %d \"%s\\*.png\" \"%s\\%s.gif\"", ANIMATION_MORPH, ANIMATION_DELAY, FRAMES_DIR, ANIMATIONS_DIR, name);
     system(createAnimationCommand);
+    return name;
+}
+
+void optimizeAnimation(char* name) {
+    char* optimizationCommand[270];
+    // Using gifsicle.
+    sprintf_s(optimizationCommand, 270, "gifsicle -O3 --colors 256 \"%s\\%s.gif\" -o \"%s\\%s __ optimized.gif\"", ANIMATIONS_DIR, name, ANIMATIONS_DIR, name);
+    system(optimizationCommand);
+
+    char* removeOriginalAnimCommand[130];
+    printf("Deleting original animation file...\n");
+    sprintf_s(removeOriginalAnimCommand, 130, "del \"%s\\%s.gif", ANIMATIONS_DIR, name);
+    system(removeOriginalAnimCommand);
+    free(name);
 }
 
 void printArrayIntoConsole(colorBlock* ar) {
